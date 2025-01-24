@@ -54,7 +54,7 @@ namespace WebView2Sample
         {
             if (InitStatus.UnInit == status)
             {
-                throw new InvalidOperationException("Not initialized yet.");
+                return;
             }
 
             if (InitStatus.Inited == status)
