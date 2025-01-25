@@ -15,9 +15,28 @@ namespace WebView2Sample
             Inited
         }
 
+        private event EventHandler<Action> AwaitInitialization;
+
         InitStatus status { set; get; } = InitStatus.UnInit;
 
         private Task task { set; get; } = null;
+
+        public MyBrowser()
+        {
+            status = InitStatus.UnInit;
+            AwaitInitialization += HandleInitAwait;
+        }
+
+        private void HandleInitAwait(object sender, Action act)
+        {
+            if (null == SynchronizationContext.Current) throw new InvalidOperationException("Should be on UI thread");
+            SynchronizationContext.Current.Post(async (_) =>
+            {
+                await task;
+                if (!task.IsCompleted) return;  // TODO: log
+                act();
+            }, null);
+        }
 
         public void Initialize()
         {
@@ -31,45 +50,46 @@ namespace WebView2Sample
 
         private void MyBrowser_CoreWebView2InitializationCompleted(object sender, Microsoft.Web.WebView2.Core.CoreWebView2InitializationCompletedEventArgs e)
         {
-            CoreWebView2.DOMContentLoaded += (o, args) => { };
+            if (!e.IsSuccess)
+            {
+                status = InitStatus.UnInit;
+                return;
+            }
             status = InitStatus.Inited;
         }
 
         public void Navigate(string url)
         {
-            Await(()=> _Navigate(url));
-        }
-        private void _Navigate(string url)
-        {
+            if (AwaitInit(() => Navigate(url))) return;
             CoreWebView2.Navigate(url);
         }
 
         public Uri Url
         {
-            set => Await(() => Source = value);
+            set
+            {
+                if (value == null) return;
+                if (AwaitInit(() => Url = value)) return;
+                Source = value;
+            }
+
             get => Source;
         }
 
-        private void Await(Action act)
+        private bool AwaitInit(Action act)
         {
             if (InitStatus.UnInit == status)
             {
-                return;
+                throw new InvalidOperationException("Call Initialize() first, before using browser's function.");
             }
 
             if (InitStatus.Inited == status)
             {
-                act();
-                return;
+                return false;
             }
 
-            if (null == SynchronizationContext.Current) throw new InvalidOperationException("Should be on UI thread");
-            SynchronizationContext.Current.Post(async (_) => 
-            {
-                await task;
-                if (!task.IsCompleted) return;  // TODO: log
-                act(); 
-            }, null);
+            AwaitInitialization?.Invoke(this, act);
+            return true;
         }
     }
 }
